@@ -11,7 +11,7 @@ import (
 )
 
 // Master holds all the state that the master needs to keep track of.
-type Master struct {
+type Master struct {                            // 
 	sync.Mutex
 
 	address     string

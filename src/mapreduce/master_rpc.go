@@ -45,7 +45,7 @@ func (mr *Master) startRPCServer() {
 					conn.Close()
 				}()
 			} else {
-				debug("RegistrationServer: accept error", err)
+
 				break
 			}
 		}
@@ -63,4 +63,4 @@ func (mr *Master) stopRPCServer() {
 		fmt.Printf("Cleanup: RPC %s error\n", mr.address)
 	}
 	debug("cleanupRegistration: done\n")
-}
+}				
