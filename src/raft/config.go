@@ -166,7 +166,6 @@ func (cfg *config) start1(i int) {
 				_, prevok := cfg.logs[i][m.Index-1]
 				cfg.logs[i][m.Index] = v
 				cfg.mu.Unlock()
-
 				if m.Index > 1 && prevok == false {
 					err_msg = fmt.Sprintf("server %v apply out of order %v", i, m.Index)
 				}

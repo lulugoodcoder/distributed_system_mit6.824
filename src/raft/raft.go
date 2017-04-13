@@ -170,7 +170,9 @@ func (rf *Raft) RequestVote(args* RequestVoteArgs, reply *RequestVoteReply) {
 
 	// the RPC includes information about the candidate’s log, and the
 	//voter denies its vote if its own log is more up-to-date than
+
 	//that of the candidate
+
 	fmt.Printf("%v", rf.me)
 	fmt.Printf(":request vote\n")	
 	if args.TERM < rf.currentTerm {
@@ -178,13 +180,21 @@ func (rf *Raft) RequestVote(args* RequestVoteArgs, reply *RequestVoteReply) {
 		 reply.TERM = rf.currentTerm
 		 return
 	}
+     
+    if rf.currentTerm < args.TERM {
+		rf.mu.Lock()
+		rf.state = "follower"
+		rf.currentTerm = args.TERM
+		rf.mu.Unlock()
+	}
 
-     uptodate := Uptodate(rf.currentTerm , len(rf.logs) - 1, args.LASTLOGTERM, args.LASTLOGIDX)
-     if uptodate == true && rf.votedFor == -1 {
+     uptodate := Uptodate(rf.logs[len(rf.logs) - 1].TERM , len(rf.logs) - 1, args.LASTLOGTERM, args.LASTLOGIDX)
+     if uptodate == true && rf.votedFor != args.CANDIDATEID {
      	rf.votedFor = args.CANDIDATEID
      	reply.VOTEGRANTED = true
-     	reply.TERM = args.TERM
      	rf.currentTerm = args.TERM
+     	reply.TERM = args.TERM
+     	rf.state = "follower"
      } else {
      	reply.VOTEGRANTED = false
      	reply.TERM = args.TERM
@@ -225,7 +235,7 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 	// As long as the other side has response, check if it has granted for the candidate,
 	// if so then check if candidate's voteCount has reached majority, if so then switch to "leader" state
 	   fmt.Printf("%v", rf.me)
-	     fmt.Printf(":send request vote\n")	
+	   fmt.Printf(":send request vote\n")	
 	   rf.mu.Lock()	
 	   rf.votecount = 1
 	   rf.mu.Unlock()
@@ -234,13 +244,14 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 	   	       if reply.TERM > rf.currentTerm {
                	       rf.mu.Lock()
                	       rf.state = "follower"
+                       rf.currentTerm = reply.TERM
                	       rf.mu.Unlock()
                } else if reply.VOTEGRANTED == true {
                	  rf.mu.Lock()
                	  rf.votecount = rf.votecount + 1
-               	  if rf.votecount > len(rf.peers) / 2 {
+               	  if rf.votecount > len(rf.peers) / 2 && rf.state == "candidate" {
                       rf.BecomeLeader <- true
-               	  }
+               	  }               	  
                	   rf.mu.Unlock()
                } 
 	   }
@@ -263,7 +274,6 @@ func (rf *Raft) BroadcastRequestVote() {
                     rf.mu.Unlock()
                     go rf.sendRequestVote(i, args, reply)
              }
-
       }
 }
 
@@ -274,27 +284,120 @@ type AppendEntries struct {
 	 LEADERID int
 	 PREVLOGINDEX int
 	 PREVLOGTERM int
-	 ENTRIES Log
+	 ENTRIES []Log
 	 LEADERCOMMIT int
 }
 
 type AppendEntriesReply struct {
 	TERM int
 	SUCCESS bool
+	NEXTINDEX int
 
 }
 
 func (rf *Raft) AppendEntriesRPC(args *AppendEntries, reply *AppendEntriesReply) {
 	            fmt.Printf("%v", rf.me)
-	            fmt.Printf(":append entries\n")	
+	            fmt.Printf(":append entries\n")
+	/*rf.mu.Lock()
+	defer rf.mu.Unlock()
+        if rf.currentTerm > args.TERM {
+                reply.TERM = rf.currentTerm
+		reply.SUCCESS= false
+		reply.NEXTINDEX = len(rf.logs) - 1
+		return
+	}
+        rf.Heartbeat <- true
+        if rf.state == "candidate" {
+		rf.state = "follower"
+	}
+	if rf.currentTerm < args.TERM {
+		rf.currentTerm = args.TERM
+	}
+       //  Append any new entries not already in the log
+	  
+        if len(rf.logs) > args.PREVLOGINDEX && rf.logs[args.PREVLOGINDEX].TERM == args.PREVLOGTERM {
+		reply.SUCCESS = true
+		reply.TERM = rf.currentTerm
+                        rf.logs = rf.logs[:args.PREVLOGINDEX+1] // include value at index: args.PREVLOGINDEX
+			for i := 0; i < len(args.ENTRIES); i++ {
+				rf.logs = append(rf.logs, args.ENTRIES[i])
+			}
+                 if rf.commitIndex < args.LEADERCOMMIT {
+			if args.LEADERCOMMIT < len(rf.logs)-1 {
+				rf.commitIndex = args.LEADERCOMMIT
+			} else {
+				rf.commitIndex = len(rf.logs) - 1
+			}
+		}
+                //If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry)
+		reply.NEXTINDEX = len(rf.logs) - 1
+		//go rf.persist()
+	} else {
+	       if args.PREVLOGINDEX - 1 <= rf.commitIndex {
+			reply.NEXTINDEX = args.PREVLOGINDEX - 1
+		} else {
+			reply.NEXTINDEX = rf.commitIndex
+		}
+		
+		reply.SUCCESS = false
+	}*/
 	            if args.TERM < rf.currentTerm {
 	            	reply.SUCCESS = false
 	            	reply.TERM = rf.currentTerm
+	            	//  // If the follower has all the entries the leader sent, 
+	            	//the follower MUST NOT truncate its log.
+	            	reply.NEXTINDEX = len(rf.logs) - 1 
 	            	return
 	            }
-
-                rf.Heartbeat <- true    
-
+	            if rf.currentTerm < args.TERM {
+	            	rf.currentTerm = args.TERM
+	            	rf.state = "follower"
+	            }
+                /*if len(rf.logs) <= args.PREVLOGINDEX {
+                    reply.SUCCESS = false
+	            	reply.TERM = args.TERM
+	            	reply.NEXTINDEX = len(rf.logs) - 1
+	            	return
+                }*/
+                rf.Heartbeat <- true 
+                /*if  len(rf.logs) > args.PREVLOGINDEX && rf.logs[args.PREVLOGINDEX].TERM != args.TERM {
+                	reply.SUCCESS = false
+                	reply.TERM = args.TERM
+                	reply.NEXTINDEX = args.PREVLOGINDEX
+                }*/
+                 
+               if len(rf.logs) > args.PREVLOGINDEX && rf.logs[args.PREVLOGINDEX].TERM == args.TERM {
+                	rf.mu.Lock()
+                	rf.logs = rf.logs[0 : args.PREVLOGINDEX + 1]
+                	for  i := 0; i < len(args.ENTRIES); i++ {
+                		rf.logs = append(rf.logs, args.ENTRIES[i])
+                	}
+                	rf.mu.Unlock()
+                	reply.SUCCESS = true
+                	reply.TERM = args.TERM
+                	reply.NEXTINDEX = len(rf.logs) - 1
+                	if args.LEADERCOMMIT > rf.commitIndex {
+                		 if args.LEADERCOMMIT < len(rf.logs) - 1 {
+                		 	rf.mu.Lock()
+                		 	rf.commitIndex = args.LEADERCOMMIT
+                		 	rf.mu.Unlock()
+                		 } else {
+                		 	rf.mu.Lock()
+                		 	rf.commitIndex = len(rf.logs) - 1
+                		 	rf.mu.Unlock()
+                		 }
+                	} 
+                	go rf.persist()
+                } else {
+                	 reply.SUCCESS = false
+                	 reply.TERM = args.TERM
+                	 // easily wrong part
+			         if args.PREVLOGINDEX - 1 <= rf.commitIndex {
+						reply.NEXTINDEX = args.PREVLOGINDEX - 1
+					 } else {
+						reply.NEXTINDEX = rf.commitIndex
+					 }
+				}               
 }
 
 func (rf *Raft) sendAppendEntriesRPC(server int, args *AppendEntries, reply *AppendEntriesReply) bool {
@@ -303,7 +406,16 @@ func (rf *Raft) sendAppendEntriesRPC(server int, args *AppendEntries, reply *App
 	// if not, check if leader's term is up-to-date, if not, step down to follower
 	     fmt.Printf("%v", rf.me)
 	     fmt.Printf(":send append entries\n")	
-        ok := rf.peers[server].Call("Raft.AppendEntriesRPC", args, reply)
+         ok := rf.peers[server].Call("Raft.AppendEntriesRPC", args, reply)
+         if ok {
+        	 if reply.TERM > rf.currentTerm {
+        	 	rf.mu.Lock()
+        	 	rf.state = "follower"
+        	 	rf.currentTerm = reply.TERM
+         		rf.mu.Unlock()
+       		 }
+       		 rf.nextIndex[server] = reply.NEXTINDEX
+        }
 		return ok
 }
 
@@ -316,9 +428,9 @@ func (rf *Raft) BroadcastAppendEntriesRPC() {
 	   	    	args := &AppendEntries{}
 	   	    	args.TERM = rf.currentTerm
 	   	    	args.LEADERID = rf.me
-	   	    	args.PREVLOGTERM = len(rf.logs) - 1
-	   	    	args.ENTRIES = rf.logs[len(rf.logs) - 1]
-	   	    	args.PREVLOGINDEX = rf.logs[len(rf.logs) - 1].TERM
+	   	    	args.PREVLOGTERM = rf.nextIndex[i] // easily wrong
+	   	    	args.ENTRIES = rf.logs[args.PREVLOGINDEX + 1 :] // easily wrong
+	   	    	args.PREVLOGINDEX = rf.logs[args.PREVLOGINDEX].TERM // easily wrong
 	   	    	reply := &AppendEntriesReply{}
 	   	    	go rf.sendAppendEntriesRPC(i, args, reply)
 	   	    	
@@ -347,7 +459,7 @@ func (rf *Raft) UpdateCommit() {
 //
 func (rf *Raft) Start(command interface{}) (int, int, bool) {
     
-         index := -1
+           index := -1
 	       term := -1
 	       isLeader := true
 
@@ -387,12 +499,21 @@ func (rf *Raft) CandidateState() {
 	// send RequestVote to all other nodes, and wait for BecomeLeaderCH
 	fmt.Printf("%v", rf.me)
 	fmt.Printf(":candidatestate\n")
+
     rf.currentTerm += 1
 	rf.BroadcastRequestVote()
     select {
     	case <-rf.BecomeLeader :
     		 rf.mu.Lock()
     		 rf.state = "leader"
+    		 // // When a leader first comes to power, it initializes all
+			// NextIndex values to the index just after the last one in its log.
+    		 rf.nextIndex=  []int{}
+				for i := 0; i < len(rf.peers); i++ {
+					rf.nextIndex = append(rf.nextIndex, len(rf.logs) - 1)
+				}
+				
+				//rf.BroadcastAppendEntriesRPC()
     		 rf.mu.Unlock()
     	case <- rf.Heartbeat:
     	     rf.mu.Lock()
@@ -414,6 +535,7 @@ func (rf *Raft) CandidateState() {
 func (rf *Raft) LeaderState() {
 	fmt.Printf("%v", rf.me)
 	fmt.Printf(":leaderstate\n")
+	
 	rf.BroadcastAppendEntriesRPC()
 }
 
