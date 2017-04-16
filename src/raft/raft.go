@@ -199,7 +199,6 @@ func (rf *Raft) RequestVote(args* RequestVoteArgs, reply *RequestVoteReply) {
      	reply.VOTEGRANTED = false
      	reply.TERM = args.TERM
      } 
-	    
 }
 
 // return true if candidate's log is more up-to-date
@@ -292,7 +291,6 @@ type AppendEntriesReply struct {
 	TERM int
 	SUCCESS bool
 	NEXTINDEX int
-
 }
 
 func (rf *Raft) AppendEntriesRPC(args *AppendEntries, reply *AppendEntriesReply) {
@@ -365,8 +363,18 @@ func (rf *Raft) AppendEntriesRPC(args *AppendEntries, reply *AppendEntriesReply)
                 	reply.TERM = args.TERM
                 	reply.NEXTINDEX = args.PREVLOGINDEX
                 }*/
-                 
-               if len(rf.logs) > args.PREVLOGINDEX && rf.logs[args.PREVLOGINDEX].TERM == args.TERM {
+             /*  if rf.commitIndex < args.LEADERCOMMIT {
+					if args.LEADERCOMMIT < len(rf.logs)-1 {
+						rf.commitIndex = args.LEADERCOMMIT
+					} else {
+						rf.commitIndex = len(rf.logs) - 1
+					}
+				}*/
+				fmt.Printf("%v", len(rf.logs))
+				fmt.Printf("%v", args.PREVLOGINDEX)
+				fmt.Printf("%v", rf.logs[args.PREVLOGINDEX].TERM)
+				fmt.Printf("%v", args.TERM)
+               if len(rf.logs) > args.PREVLOGINDEX && rf.logs[args.PREVLOGINDEX].TERM == args.PREVLOGTERM {
                 	rf.mu.Lock()
                 	rf.logs = rf.logs[0 : args.PREVLOGINDEX + 1]
                 	for  i := 0; i < len(args.ENTRIES); i++ {
@@ -387,13 +395,14 @@ func (rf *Raft) AppendEntriesRPC(args *AppendEntries, reply *AppendEntriesReply)
                 		 	rf.mu.Unlock()
                 		 }
                 	} 
-                	go rf.persist()
+                	//go rf.persist()
                 } else {
                 	 reply.SUCCESS = false
                 	 reply.TERM = args.TERM
                 	 // easily wrong part
+                	 fmt.Printf("not ok")
 			         if args.PREVLOGINDEX - 1 <= rf.commitIndex {
-						reply.NEXTINDEX = args.PREVLOGINDEX - 1
+						reply.NEXTINDEX  = args.PREVLOGINDEX - 1
 					 } else {
 						reply.NEXTINDEX = rf.commitIndex
 					 }
@@ -414,7 +423,12 @@ func (rf *Raft) sendAppendEntriesRPC(server int, args *AppendEntries, reply *App
         	 	rf.currentTerm = reply.TERM
          		rf.mu.Unlock()
        		 }
+       		 rf.mu.Lock()
        		 rf.nextIndex[server] = reply.NEXTINDEX
+       		 fmt.Printf("replyindex%v", rf.nextIndex[server])
+       		 rf.mu.Unlock()
+        } else {
+        	 rf.nextIndex[server] = 0
         }
 		return ok
 }
@@ -428,12 +442,13 @@ func (rf *Raft) BroadcastAppendEntriesRPC() {
 	   	    	args := &AppendEntries{}
 	   	    	args.TERM = rf.currentTerm
 	   	    	args.LEADERID = rf.me
-	   	    	args.PREVLOGTERM = rf.nextIndex[i] // easily wrong
-	   	    	args.ENTRIES = rf.logs[args.PREVLOGINDEX + 1 :] // easily wrong
-	   	    	args.PREVLOGINDEX = rf.logs[args.PREVLOGINDEX].TERM // easily wrong
+	   	    	args.PREVLOGINDEX =  rf.nextIndex[i]// easily wrong
+	   	    	fmt.Printf("next index : %v", args.PREVLOGINDEX)
+	   	    	args.PREVLOGTERM = rf.logs[args.PREVLOGINDEX].TERM // easily wrong
+	   	    	args.ENTRIES = rf.logs[args.PREVLOGINDEX + 1 :] // easily wron
 	   	    	reply := &AppendEntriesReply{}
-	   	    	go rf.sendAppendEntriesRPC(i, args, reply)
-	   	    	
+	   	    	//
+	   	         rf.sendAppendEntriesRPC(i, args, reply)
 	   	    }
 	   }         
 }
@@ -457,16 +472,32 @@ func (rf *Raft) UpdateCommit() {
 // term. the third return value is true if this server believes it is
 // the leader.
 //
-func (rf *Raft) Start(command interface{}) (int, int, bool) {
-    
-           index := -1
-	       term := -1
-	       isLeader := true
-
-	       // Your code here (2B).
-
-
-	       return index, term, isLeader
+func (rf *Raft) Start(command interface{}) (int, int, bool) { 
+                 index := rf.commitIndex
+                 term := rf.currentTerm
+                 isLeader := false         
+                 if rf.state == "leader" {
+                 	l := Log{}
+                    l.TERM = rf.currentTerm
+                    l.COMMAND = command
+                    rf.logs = append(rf.logs,l) 
+                    rf.nextIndex[rf.me] = index
+                    isLeader = true
+                     for i := 0; i < len(rf.peers); i++ {
+	   	                 if i != rf.me  {
+	   	                 	 args := &AppendEntries{}
+	   	    	             args.TERM = rf.currentTerm
+	   	    	             args.LEADERID = rf.me
+	   	    	             args.PREVLOGINDEX= rf.nextIndex[i] // easily wrong
+	   	    	             args.ENTRIES = rf.logs[args.PREVLOGINDEX + 1 :] // easily wrong
+	   	    	             args.PREVLOGTERM = rf.logs[args.PREVLOGINDEX].TERM // easily wrong
+	   	    	             reply := &AppendEntriesReply{}
+                             go rf.sendAppendEntriesRPC(i, args, reply)
+                         }
+                     }
+                    
+                }
+      	       return index, term, isLeader
 }
 
 //
