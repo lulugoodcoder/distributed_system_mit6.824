@@ -116,13 +116,7 @@ func (rf *Raft) readPersist(data []byte) {
 	d.Decode(&rf.commitIndex)
 	d.Decode(&rf.lastApplied)
 	d.Decode(&rf.nextIndex)
-	rf.state = "follower"
-	rf.votedFor = -1
-	if len(rf.logs) == 0 {
-		firstLog := new(Log) // initialize all nodes' Logs
-		rf.logs = []Log{*firstLog}
-	}
-	// println("rf.me " + strconv.Itoa(rf.me) + " : In readPersist, len(rf.logs): " + strconv.Itoa(len(rf.Logs)) + " Term: " + strconv.Itoa(rf.CurrentTerm) + " CommitIndex: " + strconv.Itoa(rf.CommitIndex))
+	//println("rf.me " + strconv.Itoa(rf.me) + " : In readPersist, len(rf.logs): " + strconv.Itoa(len(rf.Logs)) + " Term: " + strconv.Itoa(rf.CurrentTerm) + " CommitIndex: " + strconv.Itoa(rf.CommitIndex))
 }
 
 //
@@ -348,8 +342,10 @@ func (rf *Raft) AppendEntriesRPC(args *AppendEntries, reply *AppendEntriesReply)
 	            	return
 	            }
 	            if rf.currentTerm < args.TERM {
+	            	rf.mu.Lock()
 	            	rf.currentTerm = args.TERM
 	            	rf.state = "follower"
+	            	rf.mu.Unlock()
 	            }
                 /*if len(rf.logs) <= args.PREVLOGINDEX {
                     reply.SUCCESS = false
@@ -394,8 +390,9 @@ func (rf *Raft) AppendEntriesRPC(args *AppendEntries, reply *AppendEntriesReply)
                 		 	rf.commitIndex = len(rf.logs) - 1
                 		 	rf.mu.Unlock()
                 		 }
-                	} 
-                	//go rf.persist()
+                	}
+                	go rf.persist()
+
                 } else {
                 	 reply.SUCCESS = false
                 	 reply.TERM = args.TERM
@@ -450,7 +447,8 @@ func (rf *Raft) BroadcastAppendEntriesRPC() {
 	   	    	//
 	   	         rf.sendAppendEntriesRPC(i, args, reply)
 	   	    }
-	   }         
+	   }
+	   go rf.persist()         
 }
 
 // leader update CommitIndex
@@ -566,7 +564,7 @@ func (rf *Raft) CandidateState() {
 func (rf *Raft) LeaderState() {
 	fmt.Printf("%v", rf.me)
 	fmt.Printf(":leaderstate\n")
-	
+	time.Sleep(10 * time.Millisecond)
 	rf.BroadcastAppendEntriesRPC()
 }
 
@@ -598,7 +596,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
          rf.BecomeLeader = make(chan bool)
          rf.Heartbeat = make(chan bool) 
          rf.state = "follower"
-
+         rf.persister = persister
+         rf.readPersist(persister.ReadRaftState())
          go func() {
          	for {
          		if rf.state == "follower" {
@@ -607,7 +606,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	           		// normal 
               			fmt.Printf("%v", rf.me)
 	                    fmt.Printf(":do follower\n")
-              			case <-time.After(time.Duration(300 + rand.Int31n(600)) * time.Millisecond):
+              			case <-time.After(time.Duration(300 + rand.Int31n(800)) * time.Millisecond):
                       	rf.mu.Lock()
                       	rf.state = "candidate"
                       	rf.mu.Unlock()
@@ -623,5 +622,46 @@ func Make(peers []*labrpc.ClientEnd, me int,
          		}
          	}
          }()
+         // first we need to get the commitindex of the leader
+         // The leader decides when it is safe to apply a log entry
+		//to the state machines; such an entry is called committed.
+		//Raft guarantees that committed entries are durable
+		//and will eventually be executed by all of the available
+		//state machines. A log entry is committed once the leader
+		//that created the entry has replicated it on a majority of
+		//the servers
+        /* go func() {
+         	for {
+         		 count := 0
+         		 if rf.state == "leader" {
+         		    commitindex := rf.nextIndex[rf.me]
+         		    // we need to update the commitindex 
+         		    // so if the nextindex is greater than commitindex, we get a chance to update
+         		    // we find the smallest nextindex 
+         		    for i := 0; i < len(rf.peers); i++ {
+                        if rf.nextIndex[i] > rf.commitIndex {
+                        	count++
+                            if  commitindex > rf.nextIndex[i] {
+                            	commitindex = rf.nextIndex[i]
+
+                            }
+                        }
+         		    }
+         		    if rf.state == "leader" && count > len(rf.peers) / 2 {
+         		    	rf.mu.Lock()
+         		    	rf.commitIndex = commitindex
+         		    	rf.mu.Unlock()
+         		    }
+         		    // after update the commit index of the leader, we need to send via applymsg
+                    for i := rf.lastApplied + 1; i <= rf.commitIndex; i++ {
+                    	msg := ApplyMsg{}
+                    	msg.Index = i
+						msg.Command = rf.logs[i].COMMAND
+						applyCh <- msg
+                    }
+                    
+         		 }
+         	}
+         }()*/
          return rf
 } 
