@@ -115,7 +115,6 @@ func (rf *Raft) readPersist(data []byte) {
 	d.Decode(&rf.commitIndex)
 	d.Decode(&rf.lastApplied)
 	d.Decode(&rf.nextIndex)
-	//println("rf.me " + strconv.Itoa(rf.me) + " : In readPersist, len(rf.logs): " + strconv.Itoa(len(rf.Logs)) + " Term: " + strconv.Itoa(rf.CurrentTerm) + " CommitIndex: " + strconv.Itoa(rf.CommitIndex))
 }
 
 //
@@ -290,49 +289,7 @@ type AppendEntriesReply struct {
 
 func (rf *Raft) AppendEntriesRPC(args *AppendEntries, reply *AppendEntriesReply) {
 	            fmt.Println(strconv.Itoa(rf.me) + ":append entries\n")
-	/*rf.mu.Lock()
-	defer rf.mu.Unlock()
-        if rf.currentTerm > args.TERM {
-                reply.TERM = rf.currentTerm
-		reply.SUCCESS= false
-		reply.NEXTINDEX = len(rf.logs) - 1
-		return
-	}
-        rf.Heartbeat <- true
-        if rf.state == "candidate" {
-		rf.state = "follower"
-	}
-	if rf.currentTerm < args.TERM {
-		rf.currentTerm = args.TERM
-	}
-       //  Append any new entries not already in the log
-	  
-        if len(rf.logs) > args.PREVLOGINDEX && rf.logs[args.PREVLOGINDEX].TERM == args.PREVLOGTERM {
-		reply.SUCCESS = true
-		reply.TERM = rf.currentTerm
-                        rf.logs = rf.logs[:args.PREVLOGINDEX+1] // include value at index: args.PREVLOGINDEX
-			for i := 0; i < len(args.ENTRIES); i++ {
-				rf.logs = append(rf.logs, args.ENTRIES[i])
-			}
-                 if rf.commitIndex < args.LEADERCOMMIT {
-			if args.LEADERCOMMIT < len(rf.logs)-1 {
-				rf.commitIndex = args.LEADERCOMMIT
-			} else {
-				rf.commitIndex = len(rf.logs) - 1
-			}
-		}
-                //If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry)
-		reply.NEXTINDEX = len(rf.logs) - 1
-		//go rf.persist()
-	} else {
-	       if args.PREVLOGINDEX - 1 <= rf.commitIndex {
-			reply.NEXTINDEX = args.PREVLOGINDEX - 1
-		} else {
-			reply.NEXTINDEX = rf.commitIndex
-		}
-		
-		reply.SUCCESS = false
-	}*/
+	
 	            if args.TERM < rf.currentTerm {
 	            	reply.SUCCESS = false
 	            	reply.TERM = rf.currentTerm
@@ -347,28 +304,9 @@ func (rf *Raft) AppendEntriesRPC(args *AppendEntries, reply *AppendEntriesReply)
 	            	rf.state = "follower"
 	            	rf.mu.Unlock()
 	            }
-                /*if len(rf.logs) <= args.PREVLOGINDEX {
-                    reply.SUCCESS = false
-	            	reply.TERM = args.TERM
-	            	reply.NEXTINDEX = len(rf.logs) - 1
-	            	return
-                }*/
                 rf.Heartbeat <- true 
-                /*if  len(rf.logs) > args.PREVLOGINDEX && rf.logs[args.PREVLOGINDEX].TERM != args.TERM {
-                	reply.SUCCESS = false
-                	reply.TERM = args.TERM
-                	reply.NEXTINDEX = args.PREVLOGINDEX
-                }*/
-             /*  if rf.commitIndex < args.LEADERCOMMIT {
-					if args.LEADERCOMMIT < len(rf.logs)-1 {
-						rf.commitIndex = args.LEADERCOMMIT
-					} else {
-						rf.commitIndex = len(rf.logs) - 1
-					}
-				}*/
 				fmt.Println("log length :%v", len(rf.logs))
 				fmt.Println("prevlog: %v", args.PREVLOGINDEX)
-				//fmt.Println("prevlog term: %v", rf.logs[args.PREVLOGINDEX].TERM)
 				fmt.Println("args term: %v", args.TERM)
                if len(rf.logs) > args.PREVLOGINDEX && rf.logs[args.PREVLOGINDEX].TERM == args.PREVLOGTERM {
                 	rf.mu.Lock()
@@ -428,7 +366,6 @@ func (rf *Raft) sendAppendEntriesRPC(server int, args *AppendEntries, reply *App
         	 	rf.state = "follower"
         	 	rf.currentTerm = reply.TERM
          		rf.mu.Unlock()
-                        //fmt.Println("be follower:", rf.me)
        		 }
        		 rf.mu.Lock()
        		 rf.nextIndex[server] = reply.NEXTINDEX
@@ -464,11 +401,7 @@ func (rf *Raft) BroadcastAppendEntriesRPC() {
 	   go rf.persist()         
 }
 
-// leader update CommitIndex
-func (rf *Raft) UpdateCommit() {
 
-
-}
 
 //
 // the service using Raft (e.g. a k/v server) wants to start
@@ -559,8 +492,6 @@ func (rf *Raft) CandidateState() {
 					rf.nextIndex = append(rf.nextIndex, len(rf.logs) - 1)
 				}
 		rf.mu.Unlock()		
-		//		go rf.BroadcastAppendEntriesRPC()
-    		 
     	case <- rf.Heartbeat:
     	     rf.mu.Lock()
     	     rf.state = "follower"
