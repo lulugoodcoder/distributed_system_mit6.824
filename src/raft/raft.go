@@ -178,9 +178,9 @@ func (rf *Raft) RequestVote(args* RequestVoteArgs, reply *RequestVoteReply) {
 		rf.currentTerm = args.TERM
 		rf.mu.Unlock()
 	}
-
+        
      uptodate := Uptodate(rf.logs[len(rf.logs) - 1].TERM , len(rf.logs) - 1, args.LASTLOGTERM, args.LASTLOGIDX)
-     if uptodate == true && rf.votedFor != args.CANDIDATEID {
+     if uptodate == true && rf.votedFor != args.CANDIDATEID{
 	rf.votedFor = args.CANDIDATEID
 	reply.VOTEGRANTED = true
 	rf.currentTerm = args.TERM
@@ -226,9 +226,6 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 	// if so then check if candidate's voteCount has reached majority, if so then switch to "leader" state
 	   fmt.Println("%v", rf.me)
 	   fmt.Println(":send request vote\n")
-	   rf.mu.Lock()
-	   rf.votecount = 1
-	   rf.mu.Unlock()
 	   ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
 	   if ok {
 	         if reply.TERM > rf.currentTerm {
@@ -254,7 +251,10 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 // send RequestVote to all other nodes in the cluster
 func (rf *Raft) BroadcastRequestVote() {
 	  fmt.Println("%v", rf.me)
-	  fmt.Println(":broadcast request vote\n")		
+	  fmt.Println(":broadcast request vote\n")
+           rf.mu.Lock()
+	   rf.votecount = 1
+	   rf.mu.Unlock()		
       for i := 0; i < len(rf.peers); i++ {
              if i != rf.me && rf.state == "candidate" {
                     rf.mu.Lock()
@@ -309,9 +309,11 @@ func (rf *Raft) AppendEntriesRPC(args *AppendEntries, reply *AppendEntriesReply)
 				fmt.Println("prevlog: %v", args.PREVLOGINDEX)
 				fmt.Println("args term: %v", args.TERM)
                if len(rf.logs) > args.PREVLOGINDEX && rf.logs[args.PREVLOGINDEX].TERM == args.PREVLOGTERM {
+		        
                 	rf.mu.Lock()
                 	rf.logs = rf.logs[0 : args.PREVLOGINDEX + 1]
                         fmt.Println("args.entries" + strconv.Itoa(len(args.ENTRIES)))
+                        
                 	for  i := 0; i < len(args.ENTRIES); i++ {
                 		rf.logs = append(rf.logs, args.ENTRIES[i])
                 		fmt.Println(":append to %v" , len(rf.logs) - 1)
@@ -357,12 +359,13 @@ func (rf *Raft) sendAppendEntriesRPC(server int, args *AppendEntries, reply *App
 	// Calling peer node indefinitely until the other side has response (for loop).
 	// As long as the other side has response, check if it has accepted as a leader,
 	// if not, check if leader's term is up-to-date, if not, step down to follower
-	     fmt.Println("%v", rf.me)
-	     fmt.Println(":send append entries\n")	
+	 fmt.Println("%v", rf.me)
+	 fmt.Println(":send append entries\n")	
          ok := rf.peers[server].Call("Raft.AppendEntriesRPC", args, reply)
          if ok {
         	 if reply.TERM > rf.currentTerm {
         	 	rf.mu.Lock()
+                        fmt.Println("rf revert back to follower:", rf.me)
         	 	rf.state = "follower"
         	 	rf.currentTerm = reply.TERM
          		rf.mu.Unlock()
@@ -393,7 +396,6 @@ func (rf *Raft) BroadcastAppendEntriesRPC() {
 	   	    	args.ENTRIES = rf.logs[args.PREVLOGINDEX + 1 :] // easily wron
                         args.LEADERCOMMIT = rf.commitIndex
 	   	    	reply := &AppendEntriesReply{}
-	   	    	//
 	   	        rf.sendAppendEntriesRPC(i, args, reply)
                       }(i)
 	   	    }
@@ -418,7 +420,8 @@ func (rf *Raft) BroadcastAppendEntriesRPC() {
 //
 func (rf *Raft) Start(command interface{}) (int, int, bool) { 
 	             fmt.Println("start", rf.me)
-                 index := len(rf.logs) - 1
+                 //index := len(rf.logs) - 1
+                 index := rf.commitIndex
                  term := rf.currentTerm
                  isLeader := false         
                  if rf.state == "leader" {
@@ -431,12 +434,10 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
                     index = len(rf.logs) - 1
                     fmt.Println("in start content", command)
                     fmt.Println("in start next index", rf.nextIndex[rf.me])
-                    rf.mu.Unlock()
-                    isLeader = true
+                    rf.mu.Unlock() 
                      for i := 0; i < len(rf.peers); i++ {
-                               if (i != rf.me) {
+                               if i != rf.me && rf.state == "leader" {
                                   go func(i int) {
-                                     rf.mu.Lock()
 	   	                     args := &AppendEntries{}
 	   	    	             args.TERM = rf.currentTerm
 	   	    	             args.LEADERID = rf.me
@@ -444,13 +445,16 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	   	    	             args.ENTRIES = rf.logs[args.PREVLOGINDEX + 1 :] // easily wrong
 	   	    	             args.PREVLOGTERM = rf.logs[args.PREVLOGINDEX].TERM // easily wrong
 	   	    	             reply := &AppendEntriesReply{}
-                                      rf.mu.Unlock()
                                       rf.sendAppendEntriesRPC(i, args, reply)
                                   }(i)
                               }
                      }
                     
                 }
+                if rf.state == "leader" {
+                   isLeader = true
+                }
+          
                fmt.Println("end")
       	       return index, term, isLeader
 }
@@ -491,6 +495,7 @@ func (rf *Raft) CandidateState() {
 				for i := 0; i < len(rf.peers); i++ {
 					rf.nextIndex = append(rf.nextIndex, len(rf.logs) - 1)
 				}
+           
 		rf.mu.Unlock()		
     	case <- rf.Heartbeat:
     	     rf.mu.Lock()
@@ -559,7 +564,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	           		fmt.Println("")
               			fmt.Println("%v", rf.me)
 	                        fmt.Println(":do follower\n")
-              			case <-time.After(time.Duration(800+ rand.Int31n(300)) * time.Millisecond):
+              			case <-time.After(time.Duration(600 + rand.Int31n(400)) * time.Millisecond):
                       	rf.mu.Lock()
                       	fmt.Println("candidate")
                       	rf.state = "candidate"
@@ -616,7 +621,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
          		    	rf.commitIndex = commitindex
          		    }
                             rf.mu.Unlock()
-         		    fmt.Println("in go func : commitindex" ,rf.commitIndex)
+         	    fmt.Println("in go func : commitindex" ,rf.commitIndex)
          		    go rf.persist()
          		}
          		    // after update the commit index of the leader, we need to send via applymsg
@@ -638,11 +643,16 @@ func Make(peers []*labrpc.ClientEnd, me int,
                                 rf.mu.Lock()
 				lastApplied := rf.lastApplied + 1
                                 oldcommitIndex := rf.commitIndex 
-                                rf.lastApplied = rf.commitIndex
                                 rf.mu.Unlock() 
+                                if len(rf.logs) - 1 < oldcommitIndex {
+                                   return
+                                } 
+                                 rf.mu.Lock()
+                                 rf.lastApplied = rf.commitIndex
+                                 rf.mu.Unlock() 
                                 fmt.Println("son commit index", oldcommitIndex)
 				fmt.Println("son last applied", lastApplied)  
-                              //  time.Sleep(10 * time.Millisecond)
+                                time.Sleep(10 * time.Millisecond)
                     	for i := lastApplied; i <= oldcommitIndex; i++ {
 							fmt.Println("last applied")
 							fmt.Println("begin to send")
