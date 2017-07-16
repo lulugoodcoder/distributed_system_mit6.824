@@ -139,9 +139,9 @@ func (rf *Raft) persist() {
 	e := gob.NewEncoder(w)
 	e.Encode(rf.CurrentTerm)
 	e.Encode(rf.Logs)
-	e.Encode(rf.CommitIndex)
-	e.Encode(rf.LastApplied)
-	e.Encode(rf.NextIndex)
+	//e.Encode(rf.CommitIndex)
+	//e.Encode(rf.LastApplied)
+	//e.Encode(rf.NextIndex)
 	data := w.Bytes()
 	rf.persister.SaveRaftState(data)
 }
@@ -403,7 +403,7 @@ func (rf *Raft) CommitUpdate() {
              if i < len(Logs) {
              msg := ApplyMsg{}
              msg.Index = i
-             fmt.Println("rf len", rf.me, len(rf.Logs), i)
+            // fmt.Println("rf len", rf.me, len(rf.Logs), i)
 	     msg.Command = Logs[i].COMMAND
 	     rf.applyCh <- msg
              rf.LastApplied = i
@@ -521,7 +521,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
          rf.Logs = append(rf.Logs, tmp)
          rf.CommitIndex = 0
          rf.LastApplied = 0  
-         rf.readPersist(persister.ReadRaftState()) 
+         rf.readPersist(persister.ReadRaftState())
+         //rf.LastApplied = 0
          /*
          Respond to RPCs from candidates and leaders
 	 If election timeout elapses without receiving AppendEntries
